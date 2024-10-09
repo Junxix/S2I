@@ -73,7 +73,7 @@ def data_augmentation(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--dataset", type=str, default='/aidata/jingjing/robomimic/can/mh/low_dim_v141_saved.hdf5', help="path to hdf5 dataset")
+    parser.add_argument("--dataset", type=str, default='./low_dim_v141.hdf5', help="path to hdf5 dataset")
     
     parser.add_argument("--video_path_ori", type=str, default='./tmp/', help="render trajectories to this video file path")
 
