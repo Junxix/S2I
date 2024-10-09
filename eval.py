@@ -19,10 +19,10 @@ def parse_option():
     parser.add_argument('--model', type=str, default='resnet50')
     parser.add_argument('--mean', type=str, default="(0.4914, 0.4822, 0.4465)")
     parser.add_argument('--std', type=str, default="(0.2675, 0.2565, 0.2761)")
-    parser.add_argument('--train_data_folder', type=str, default='/home/jingjing/workspace/au/SupContrast/organize/augmentation/tmp/lowdim_samples.npy', help='path to custom dataset')
-    parser.add_argument('--val_data_folder', type=str, default='/aidata/jingjing/data/robomimic/can/mh/low_dim/select30/low_dim_select30_baseline_test.hdf5', help='path to custom dataset')
+    parser.add_argument('--train_data_folder', type=str, default='./lowdim_samples.npy', help='path to custom dataset')
+    parser.add_argument('--val_data_folder', type=str, default='./low_dim.hdf5', help='path to custom dataset')
     parser.add_argument('--size', type=int, default=128)
-    parser.add_argument('--ckpt', type=str, default='/aidata/jingjing/chkpts/SupContrast/test/can/image-background/path_models/SupCon_path_resnet50_lr_0.005_decay_0.0001_bsz_256_temp_0.1_trial_0_imgsize_32_cosine/ckpt_epoch_2000.pth',
+    parser.add_argument('--ckpt', type=str, default='./ckpts/ckpt_epoch_2000.pth',
                         help='path to pre-trained model')
     return parser.parse_args()
 

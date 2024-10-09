@@ -52,8 +52,8 @@ def parse_option():
     parser.add_argument('--temp', type=float, default=0.07, help='Temperature for loss function')
 
     # Paths for saving model and tensorboard logs
-    parser.add_argument('--model_path', type=str, default='/aidata/jingjing/chkpts/SupContrast/test/can/image-background-size128/models', help='Path to save model checkpoints')
-    parser.add_argument('--tb_path', type=str, default='/aidata/jingjing/chkpts/SupContrast/test/can/image-background-size128/tensorboard', help='Path for tensorboard logs')
+    parser.add_argument('--model_path', type=str, default='./image-background/models', help='Path to save model checkpoints')
+    parser.add_argument('--tb_path', type=str, default='./image-background/tensorboard', help='Path for tensorboard logs')
 
     # Other settings
     parser.add_argument('--cosine', action='store_true', help='Use cosine annealing learning rate schedule')
