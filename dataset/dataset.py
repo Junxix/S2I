@@ -5,18 +5,18 @@ import numpy as np
 from PIL import Image
 # from robomimic.envs.env_base import EnvBase, EnvType
 from torchvision import transforms, datasets
-# import robomimic.utils.obs_utils as ObsUtils
-# import robomimic.utils.env_utils as EnvUtils
-# import robomimic.utils.file_utils as FileUtils
-# import matplotlib.pyplot as plt
-# # from .extract_waypoints import trajectory_optimization
-# from .trajectory_optimization import TrajectoryOptimizer
+import robomimic.utils.obs_utils as ObsUtils
+import robomimic.utils.env_utils as EnvUtils
+import robomimic.utils.file_utils as FileUtils
+import matplotlib.pyplot as plt
+# from .extract_waypoints import trajectory_optimization
+from .trajectory_optimization import TrajectoryOptimizer
 
-# DEFAULT_CAMERAS = {
-#     EnvType.ROBOSUITE_TYPE: ["agentview"],
-#     EnvType.IG_MOMART_TYPE: ["rgb"],
-#     EnvType.GYM_TYPE: ValueError("No camera names supported for gym type env!"),
-# }
+DEFAULT_CAMERAS = {
+    EnvType.ROBOSUITE_TYPE: ["agentview"],
+    EnvType.IG_MOMART_TYPE: ["rgb"],
+    EnvType.GYM_TYPE: ValueError("No camera names supported for gym type env!"),
+}
 
 class CustomDataset(Dataset):
     def __init__(self, npy_file, transform=None):
@@ -54,8 +54,8 @@ class ValDataset(Dataset):
     def __init__(self, hdf5_file, transform=None):
         """
         Args:
-            hdf5_file (string): HDF5 文件路径.
-            transform (callable, optional): 可选的图像转换.
+            hdf5_file (string)
+            transform (callable, optional):
         """
         self.transform = transform
         self.hdf5_file = hdf5_file
@@ -192,7 +192,7 @@ class ValDataset(Dataset):
 
 
     def generate_image(self, small_demo, save_mode="image"):
-        trajectory_points = small_demo['trajectory_points']  # 假设从小 demo 中提取动作
+        trajectory_points = small_demo['trajectory_points']  
 
         self.env.reset()
         self.env.reset_to(dict(states=small_demo['states'][0]))
