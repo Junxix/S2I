@@ -17,7 +17,7 @@ if __name__ == '__main__':
     ])
     
     # val_dataset = ValDataset(hdf5_file = "./low_dim_select30.hdf5", transform=val_transform)
-    val_dataset = RealworldValDataset(dataset = './20%mixdata_sampled_20240320', transform=val_transform, save_mode='realworld')
+    val_dataset = RealworldDataset(dataset = './20%mixdata_sampled_20240320', transform=val_transform, save_mode='realworld')
 
     for idx in range(0, len(val_dataset)):
         image_data, demo_idx, small_demo_idx = val_dataset[idx]

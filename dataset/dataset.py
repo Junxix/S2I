@@ -200,7 +200,7 @@ class ValDataset(Dataset):
         return plot(transformed_points, image)
 
 
-class RealworldValDataset(Dataset):
+class RealworldDataset(Dataset):
     def __init__(self, dataset, transform=None, save_mode=None):
         """
         Args:
