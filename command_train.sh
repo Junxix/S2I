@@ -1,1 +1,1 @@
-python train.py --batch_size 256 --learning_rate 0.005 --temp 0.1 --cosine --data_folder ./lowdim_samples.npy  --method SupCon --epochs 3000 --save_freq 100 --print_freq 1 --size 256
+python train.py --batch_size 256 --learning_rate 0.005 --temp 0.1 --cosine --aug_path ./lowdim_samples.npy  --method SupCon --epochs 3000 --save_freq 100 --print_freq 1 --size 256

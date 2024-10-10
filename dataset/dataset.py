@@ -1,22 +1,17 @@
+import os
+import cv2
 import torch
 import h5py
 from torch.utils.data import Dataset
 import numpy as np
 from PIL import Image
-# from robomimic.envs.env_base import EnvBase, EnvType
 from torchvision import transforms, datasets
 import robomimic.utils.obs_utils as ObsUtils
 import robomimic.utils.env_utils as EnvUtils
 import robomimic.utils.file_utils as FileUtils
-import matplotlib.pyplot as plt
-# from .extract_waypoints import trajectory_optimization
-from .trajectory_optimization import TrajectoryOptimizer
 
-DEFAULT_CAMERAS = {
-    EnvType.ROBOSUITE_TYPE: ["agentview"],
-    EnvType.IG_MOMART_TYPE: ["rgb"],
-    EnvType.GYM_TYPE: ValueError("No camera names supported for gym type env!"),
-}
+from .trajectory_optimization import TrajectoryOptimizer
+from utils.realworld_utils import *
 
 class CustomDataset(Dataset):
     def __init__(self, npy_file, transform=None):
@@ -51,13 +46,14 @@ class CustomDataset(Dataset):
 
 
 class ValDataset(Dataset):
-    def __init__(self, hdf5_file, transform=None):
+    def __init__(self, hdf5_file, transform=None, save_mode=None):
         """
         Args:
             hdf5_file (string)
-            transform (callable, optional):
+            transform (callable, optional)
         """
         self.transform = transform
+        self.save_mode = save_mode
         self.hdf5_file = hdf5_file
         self.data = h5py.File(hdf5_file, 'r')
 
@@ -147,6 +143,18 @@ class ValDataset(Dataset):
             idx -= len(small_demos)
         raise IndexError("Index out of range.")
 
+    def _save_marks(self, demo_idx, marks):
+        with h5py.File(self.hdf5_file, 'a') as f: 
+            if f'data/{demo_idx}/marks' not in f:
+                f.create_dataset(f'data/{demo_idx}/marks', data=marks)
+            else:
+                existing_marks = f[f'data/{demo_idx}/marks'][:]
+                all_marks = np.unique(np.concatenate((existing_marks, marks)))
+                all_marks.sort()
+                del f[f'data/{demo_idx}/marks']  
+                f.create_dataset(f'data/{demo_idx}/marks', data=all_marks)
+
+
     def visualize_image(self,idx):
         demo_idx, small_demo_idx = self._find_small_demo_index(idx)
         small_demo = self.small_demos[demo_idx][small_demo_idx]
@@ -160,24 +168,10 @@ class ValDataset(Dataset):
         small_demo = self.small_demos[demo_idx][small_demo_idx]
         if flag:
             marks = self.optimizer.optimize_trajectory(small_demo, demo_idx, small_demo_idx,three_dimension=True)
-            print(marks)
         else:
             marks = list(range(small_demo['frame_start'], small_demo['frame_end']))
 
-        self.save_marks(demo_idx, marks)
-
-
-    def save_marks(self, demo_idx, marks):
-        with h5py.File(self.hdf5_file, 'a') as f: 
-            if f'data/{demo_idx}/marks' not in f:
-                f.create_dataset(f'data/{demo_idx}/marks', data=marks)
-            else:
-                existing_marks = f[f'data/{demo_idx}/marks'][:]
-                all_marks = np.unique(np.concatenate((existing_marks, marks)))
-                all_marks.sort()
-                del f[f'data/{demo_idx}/marks']  
-                f.create_dataset(f'data/{demo_idx}/marks', data=all_marks)
-
+        self._save_marks(demo_idx, marks)
 
     def transform_points(self, trajectory_points):
         camera_position = np.array([1.0, 0.0, 1.75])
@@ -192,61 +186,118 @@ class ValDataset(Dataset):
 
 
     def generate_image(self, small_demo, save_mode="image"):
-        trajectory_points = small_demo['trajectory_points']  
+        trajectory_points = small_demo['trajectory_points'] 
 
         self.env.reset()
         self.env.reset_to(dict(states=small_demo['states'][0]))
-        frame = self.env.render(mode="rgb_array", height=480, width=480, camera_name=self.render_image_names[0])  # 根据需要替换 camera_name
+        frame = self.env.render(mode="rgb_array", height=480, width=480, camera_name=self.render_image_names[0])  
         
-        image2 = Image.fromarray(frame)
-        image_array = np.array(image2)
+        image = Image.fromarray(frame)
+        factor = get_save_mode_factor(save_mode=self.save_mode)
+        image = apply_image_filter(image, factor)
 
-        if save_mode == 'lowdim':
-            factor = 0
-        elif save_mode == 'image':
-            factor = 0.5
-        elif save_mode == 'realworld':
-            raise ValueError("The 'realworld' mode is not yet implemented.")
+        transformed_points = self.transform_points(trajectory_points) 
+        return plot(transformed_points, image)
+
+
+class RealworldValDataset(Dataset):
+    def __init__(self, dataset, transform=None, save_mode=None):
+        """
+        Args:
+            hdf5_file (string)
+            transform (callable, optional)
+        """
+        self.transform = transform
+        self.calib_dir = check_directory_exists(os.path.join(dataset, "calib"))
+        self.save_mode = save_mode
+        self.root_dir = os.path.join(dataset, "train")
+        subdirs = [d for d in os.listdir(self.root_dir) if os.path.isdir(os.path.join(self.root_dir, d))]
+        self.subdirs = sorted(subdirs, key=lambda x: int(x.split('_scene_')[1].split('_')[0]))
+        self.small_demos = {}
+        self.mapping = {}
+
+        self.optimizer = TrajectoryOptimizer(env=None, real_world=True, calib_dir=self.calib_dir)
+        self._split_demos()
+
+    def _split_demos(self):
+        for ind in range(len(self.subdirs)-20):
+            color_path =  os.path.join(self.root_dir, self.subdirs[ind], CAMERA_NAME, 'color')
+            file_paths, trajectory_points, gripper_command = load_demo_files(self.root_dir, self.subdirs, ind)
+            frames = realworld_change_indices(gripper_command)
+            small_demos = self._split_into_small_demos(file_paths, trajectory_points, frames, color_path)
+
+            self.small_demos[ind] = small_demos
+            self.mapping[ind] = list(range(len(small_demos)))  
+
+    def _split_into_small_demos(self, file_paths, trajectory_points, frames, color_path):
+        small_demos = []
+        for i in range(len(frames) - 1):
+            start, end = frames[i], frames[i + 1]
+            small_demos.append({
+                'states': file_paths[start:end],
+                'trajectory_points': trajectory_points[start:end],
+                'frame_start': frames[i],
+                'frame_end': frames[i+1],
+                'color_path': color_path
+            })
+        return small_demos
+
+    def _find_small_demo_index(self, idx):
+        for demo_idx, small_demos in self.small_demos.items():
+            if idx < len(small_demos):
+                return demo_idx, idx
+            idx -= len(small_demos)
+        raise IndexError("Index out of range.")
+    
+    def _generate_image(self, small_demo):
+        trajectory_points = small_demo['trajectory_points']
+
+        transformed_points = translate_points(self.calib_dir, trajectory_points)
+        img_path = os.path.join(small_demo['color_path'], small_demo['states'][0])            
+        image = cv2.imread(img_path)
+
+        factor = get_save_mode_factor(save_mode=self.save_mode)
+        image = apply_image_filter(image, factor)
+        image = np.array(image)
+
+        prev_point = None
+        for point in transformed_points[:]:
+            cv2.circle(image, (int(point[0]), int(point[1])), 3, (0, 0, 255), -1)
+            if prev_point is not None:
+                cv2.line(image, prev_point, point, (0, 0, 255), thickness=4)
+            prev_point = point
+        return image
+
+    def __len__(self):
+        return sum(len(small_demo) for small_demo in self.small_demos.values())
+    
+    def __getitem__(self, idx):
+        demo_idx, small_demo_idx = self._find_small_demo_index(idx)
+        small_demo = self.small_demos[demo_idx][small_demo_idx]
+        positive_image = self._generate_image(small_demo)
+
+        positive_image = self.transform(Image.fromarray(positive_image)) if self.transform and isinstance(positive_image, np.ndarray) else positive_image
+
+        return positive_image, demo_idx, small_demo_idx
+
+    def _save_marks(self, demo_idx, marks, color_path):
+        npy_file_path = os.path.join(color_path, f'marks_{demo_idx}.npy')
+        if os.path.exists(npy_file_path):
+            existing_marks = np.load(npy_file_path)
+            all_marks = np.unique(np.concatenate((existing_marks, marks)))
         else:
-            raise ValueError(f"Unknown save_mode: {save_mode}")
-
-        white_image = np.ones_like(image_array) * 255
-        new_image_array = (image_array * factor + white_image * (1 - factor)).astype(np.uint8)
-
-        image2 = Image.fromarray(new_image_array)
-        transformed_points = self.transform_points(trajectory_points)  # 假设你有这个函数
-    
-        plt.clf()
-        projected_points = transformed_points[:, :2]
-        plt.plot(projected_points[:, 0], projected_points[:, 1], color='red', linewidth=5)
-        plt.xlabel('X')
-        plt.ylabel('Y')
-        plt.axis('off')
-        plt.xlim(-0.45, 0.45)
-        plt.ylim(-0.5, 0.5)
-        plt.gcf().set_size_inches(480/96, 480/96)
-        plt.tight_layout()
-        plt.savefig('./test_dataset/test.png', transparent=True, dpi=96)
-
-        image1 = Image.open('./test_dataset/test.png')
-        image2.paste(image1, (0, 0), image1)
-        return image2
-
+            all_marks = np.unique(marks)
         
+        all_marks.sort() 
+        np.save(npy_file_path, all_marks)
 
-if __name__ == '__main__':
-    mean =  "(0.4914, 0.4822, 0.4465)"
-    std = "(0.2675, 0.2565, 0.2761)"
-    normalize = transforms.Normalize(mean=mean, std=std)
+    def perform_optimization(self, idx, flag=True):
+        demo_idx, small_demo_idx = self._find_small_demo_index(idx)
+        small_demo = self.small_demos[demo_idx][small_demo_idx]
+        if flag:
+            marks = self.optimizer.optimize_trajectory(small_demo, demo_idx, small_demo_idx,three_dimension=True)
+        else:
+            marks = list(range(small_demo['frame_start'], small_demo['frame_end']))
 
-    val_transform = transforms.Compose([
-        transforms.Resize((32, 32)),  
-        transforms.ToTensor(),
-        normalize,
-    ])
-    
-    val_dataset = ValDataset(hdf5_file = "/aidata/jingjing/data/robomimic/can/mh/low_dim/select30/low_dim_select30.hdf5", transform=val_transform)
-    for idx in range(0, len(val_dataset)):
-        image_data, demo_idx, small_demo_idx = val_dataset[idx]
-        print(demo_idx)
-        output_image.save(f'../test_dataset/output_image_{demo_idx}_{small_demo_idx}.png')
+        self._save_marks(demo_idx, marks, small_demo['color_path'])
+

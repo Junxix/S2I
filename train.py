@@ -1,6 +1,6 @@
 from __future__ import print_function
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "8"
 import sys
 import argparse
 import time
@@ -11,8 +11,10 @@ import torch
 import torch.backends.cudnn as cudnn
 from torchvision import transforms
 
-from util import TwoCropTransform, AverageMeter, adjust_learning_rate, warmup_learning_rate, set_optimizer, save_model
-from networks.resnet_big import SupConResNet
+from utils.util import *
+from utils.constant import *
+from utils.data_augmentation import data_augmentation
+from networks.resnet import SupConResNet
 from losses import SupConLoss
 from dataset.dataset import CustomDataset
 
@@ -42,18 +44,22 @@ def parse_option():
 
     # Model and dataset settings
     parser.add_argument('--model', type=str, default='resnet50', help='Model architecture')
-    parser.add_argument('--mean', type=str, default="(0.4914, 0.4822, 0.4465)", help='Mean for normalization')
-    parser.add_argument('--std', type=str, default="(0.2675, 0.2565, 0.2761)", help='Standard deviation for normalization')
-    parser.add_argument('--data_folder', type=str, default=None, help='Path to custom dataset')
-    parser.add_argument('--size', type=int, default=32, help='Image size for RandomResizedCrop')
+    parser.add_argument("--dataset", type=str, default='./low_dim.hdf5', help="path to hdf5 dataset")
+    parser.add_argument('--aug_path', type=str, default=None, help='Path to custom dataset')
+    parser.add_argument("--save_mode", type=str, default='lowdim', choices=['image', 'lowdim', 'realworld'], help="choose the saving method")
+    parser.add_argument('--size', type=int, default=128, help='Image size for RandomResizedCrop')
+
+    # Data augmentation
+    parser.add_argument("--total_images", type=int, default=100, help="total number of images to generate")
+    parser.add_argument("--numbers", type=int, nargs='+', default=[0, 1, 2], help="list of numbers for processing")
 
     # Method and loss function configurations
     parser.add_argument('--method', type=str, default='SupCon', choices=['SupCon', 'SimCLR'], help='Contrastive learning method')
-    parser.add_argument('--temp', type=float, default=0.07, help='Temperature for loss function')
+    parser.add_argument('--temp', type=float, default=0.01, help='Temperature for loss function')
 
     # Paths for saving model and tensorboard logs
-    parser.add_argument('--model_path', type=str, default='./image-background/models', help='Path to save model checkpoints')
-    parser.add_argument('--tb_path', type=str, default='./image-background/tensorboard', help='Path for tensorboard logs')
+    parser.add_argument('--model_path', type=str, default='./lowdim/models', help='Path to save model checkpoints')
+    parser.add_argument('--tb_path', type=str, default='./lowdim/tensorboard', help='Path for tensorboard logs')
 
     # Other settings
     parser.add_argument('--cosine', action='store_true', help='Use cosine annealing learning rate schedule')
@@ -85,9 +91,7 @@ def parse_option():
 
 def set_loader(opt):
     """ Data loader for the training dataset """
-    mean = eval(opt.mean)
-    std = eval(opt.std)
-    normalize = transforms.Normalize(mean=mean, std=std)
+    normalize = transforms.Normalize(mean=IMG_MEAN, std=IMG_STD)
 
     train_transform = transforms.Compose([
         transforms.RandomResizedCrop(size=opt.size, scale=(0.8, 1.)),
@@ -95,7 +99,8 @@ def set_loader(opt):
         normalize,
     ])
 
-    train_dataset = CustomDataset(npy_file=opt.data_folder, transform=TwoCropTransform(train_transform))
+    
+    train_dataset = CustomDataset(npy_file=opt.aug_path, transform=TwoCropTransform(train_transform))
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=opt.batch_size, shuffle=True,
@@ -138,7 +143,6 @@ def train(train_loader, model, criterion, optimizer, epoch, opt):
 
         warmup_learning_rate(opt, epoch, idx, len(train_loader), optimizer)
 
-        # Compute loss
         features = model(images)
         f1, f2 = torch.split(features, [bsz, bsz], dim=0)
         features = torch.cat([f1.unsqueeze(1), f2.unsqueeze(1)], dim=1)
@@ -146,16 +150,13 @@ def train(train_loader, model, criterion, optimizer, epoch, opt):
         loss = criterion(features, labels) if opt.method == 'SupCon' else criterion(features)
         losses.update(loss.item(), bsz)
 
-        # Backward and optimization
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        # Measure batch time
         batch_time.update(time.time() - end)
         end = time.time()
 
-        # Print progress
         if (idx + 1) % opt.print_freq == 0:
             print(f'Epoch: [{epoch}][{idx + 1}/{len(train_loader)}]\t'
                   f'Batch Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
@@ -167,6 +168,7 @@ def train(train_loader, model, criterion, optimizer, epoch, opt):
 def main():
     """ Main function to train the model """
     opt = parse_option()
+    data_augmentation(opt)
 
     train_loader = set_loader(opt)
     model, criterion = set_model(opt)

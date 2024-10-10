@@ -1,1 +1,1 @@
-python eval.py --mean "(0.4914, 0.4822, 0.4465)" --std "(0.2675, 0.2565, 0.2761)" --train_data_folder ./lowdim_samples.npy  --val_data_folder ./low_dim.hdf5  --size 256 --ckpt ./ckpts/ckpt_epoch_2000.pth 
+python eval.py  --train_data_folder ./lowdim_samples.npy  --val_data_folder ./low_dim.hdf5  --size 256 --ckpt ./ckpts/ckpt_epoch_2000.pth 

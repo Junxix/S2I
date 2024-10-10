@@ -6,53 +6,45 @@ import torch
 import torch.backends.cudnn as cudnn
 from torchvision import transforms
 from tqdm import tqdm
-from util import TwoCropTransform, AverageMeter
-from networks.resnet_big import SupConResNet
+from utils.util import TwoCropTransform, AverageMeter
+from networks.resnet import SupConResNet
 from dataset.dataset import CustomDataset, ValDataset
+from utils.constant import *
 
-# Set CUDA device
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-# Parse command-line arguments
 def parse_option():
     parser = argparse.ArgumentParser('Argument for training')
     parser.add_argument('--model', type=str, default='resnet50')
-    parser.add_argument('--mean', type=str, default="(0.4914, 0.4822, 0.4465)")
-    parser.add_argument('--std', type=str, default="(0.2675, 0.2565, 0.2761)")
+    parser.add_argument("--save_mode", type=str, default='lowdim', choices=['image', 'lowdim', 'realworld'], help="choose the saving method")
     parser.add_argument('--train_data_folder', type=str, default='./lowdim_samples.npy', help='path to custom dataset')
     parser.add_argument('--val_data_folder', type=str, default='./low_dim.hdf5', help='path to custom dataset')
     parser.add_argument('--size', type=int, default=128)
-    parser.add_argument('--ckpt', type=str, default='./ckpts/ckpt_epoch_2000.pth',
+    parser.add_argument('--ckpt', type=str, default='./ckpt_epoch_2000.pth',
                         help='path to pre-trained model')
     return parser.parse_args()
 
-# Calculate Euclidean distance
 def dist_metric(x, y):
     return torch.norm(x - y).item()
 
-# Calculate label based on distance
 def calculate_label(dist_list, k):
     top_k_weights = torch.nn.functional.softmax(torch.tensor([d[0] for d in dist_list[:k]]) * -1, dim=0)
     action = sum(weight * dist_list[i][1] for i, weight in enumerate(top_k_weights))
     return action
 
-# Clear folders if not empty
 def clear_folders_if_not_empty(folders):
     for folder in folders:
         if os.path.exists(folder) and os.listdir(folder):
             shutil.rmtree(folder)
             os.makedirs(folder)
 
-# Calculate nearest neighbors
 def calculate_nearest_neighbors(query_embedding, train_dataset, train_labels, k):
     dist_list = [(dist_metric(torch.from_numpy(query_embedding), torch.from_numpy(train_dataset[i])), train_labels[i]) for i in range(len(train_dataset))]
     dist_list.sort(key=lambda tup: tup[0])
     return calculate_label(dist_list, k)
 
-# Set data loader
 def set_loader(opt):
-    mean, std = eval(opt.mean), eval(opt.std)
-    normalize = transforms.Normalize(mean=mean, std=std)
+    normalize = transforms.Normalize(mean=IMG_MEAN, std=IMG_STD)
 
     train_transform = transforms.Compose([
         transforms.RandomResizedCrop(size=opt.size, scale=(0.8, 1.0)),
@@ -67,10 +59,9 @@ def set_loader(opt):
     ])
 
     train_dataset = CustomDataset(npy_file=opt.train_data_folder, transform=train_transform)
-    val_dataset = ValDataset(hdf5_file=opt.val_data_folder, transform=val_transform)
+    val_dataset = ValDataset(hdf5_file=opt.val_data_folder, transform=val_transform, save_mode = opt.save_mode)
     return train_dataset, val_dataset
 
-# Set model and load checkpoint
 def set_model(opt):
     model = SupConResNet(name=opt.model)
     ckpt = torch.load(opt.ckpt, map_location='cpu')
@@ -84,7 +75,6 @@ def set_model(opt):
         raise NotImplementedError('This code requires GPU')
     return model
 
-# Extract embeddings from training data
 def get_embeddings(train_dataset, model):
     model.eval()
     embeddings, labels = [], []
@@ -97,7 +87,6 @@ def get_embeddings(train_dataset, model):
         labels.append(label)
     return np.concatenate(embeddings), np.array(labels)
 
-# Main classifier function
 def classifier(val_dataset, train_dataset, train_labels, model, neighbors_num):
     device = next(model.parameters()).device
     dest_folders = ['./test_dataset/negative/', './test_dataset/positive/']
@@ -118,7 +107,6 @@ def classifier(val_dataset, train_dataset, train_labels, model, neighbors_num):
         image_path = f"{folder}/output_image_{demo_idx}_{small_demo_idx}.png"
         val_dataset.visualize_image(idx).save(image_path)
 
-# Main function
 def main():
     opt = parse_option()
     train_dataset, val_dataset = set_loader(opt)
