@@ -15,6 +15,6 @@ Here are the argument explanations in the training process:
 For the eval stage, run the command `bash command_eval.sh` to complete the segment selection and trajectory optimization processes.
 
 Here are the argument explanations in the evaluation process:
-* `--train_data_folder` :  Specifies the dataset used for distance-weighted voting during the segment selection process.
-* `--val_data_folder` : Specifies the folder containing the full mixed-quality demonstration dataset for validation.
+* `--train_data_folder` :  The dataset used for distance-weighted voting during the segment selection process.
+* `--val_data_folder` : The folder containing the full mixed-quality demonstration dataset for validation.
 * `--size` : Specifies the size to which the images will be resized.
