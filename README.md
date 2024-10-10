@@ -1,6 +1,6 @@
 ## Towards Effective Utilization of Mixed-Quality Demonstrations in Robotic Manipulation via Segment-Level Selection and Optimization
 
-<img src="./img/model.png" alt="xx picture" width="700">
+<img src="./img/model.png" alt="xx picture" width="800">
 
 ### Run
 For the representation model training stage, run the command `bash command_train.sh` to execute the data training script, which will preprocess the dataset and training the model. 
