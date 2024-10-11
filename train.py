@@ -1,6 +1,5 @@
 from __future__ import print_function
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "8"
 import sys
 import argparse
 import time

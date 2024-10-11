@@ -11,8 +11,6 @@ from networks.resnet import SupConResNet
 from dataset.dataset import CustomDataset, ValDataset
 from utils.constant import *
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
 def parse_option():
     parser = argparse.ArgumentParser('Argument for training')
     parser.add_argument('--model', type=str, default='resnet50')

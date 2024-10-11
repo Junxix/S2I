@@ -12,6 +12,8 @@ import robomimic.utils.file_utils as FileUtils
 
 from .trajectory_optimization import TrajectoryOptimizer
 from utils.realworld_utils import *
+from utils.constant import *
+
 
 class CustomDataset(Dataset):
     def __init__(self, npy_file, transform=None):
@@ -80,7 +82,10 @@ class ValDataset(Dataset):
         )
         ObsUtils.initialize_obs_utils_with_obs_specs(obs_modality_specs=dummy_spec)
         self.env = EnvUtils.create_env_from_metadata(env_meta=env_meta, render=False, render_offscreen=True)
-
+        self.camera_name = DEFAULT_CAMERAS[env_type][0]
+        self.extrinsic_matrix = self.env.get_camera_extrinsic_matrix(camera_name)
+        self.camera_position = self.extrinsic_matrix[:3, 3]
+        self.camera_rotation = self.extrinsic_matrix[:3, :3]
         
     def _split_demos(self):
         for demo_idx in self.demos:
@@ -173,18 +178,6 @@ class ValDataset(Dataset):
 
         self._save_marks(demo_idx, marks)
 
-    def transform_points(self, trajectory_points):
-        camera_position = np.array([1.0, 0.0, 1.75])
-        camera_rotation = np.array([
-            [0.0, -0.70614724, 0.70806503],
-            [1.0, 0.0, 0.0],
-            [0.0, 0.70806503, 0.70614724]
-        ])
-
-        transformed_points = np.dot(trajectory_points - camera_position, camera_rotation)
-        return transformed_points
-
-
     def generate_image(self, small_demo, save_mode="image"):
         trajectory_points = small_demo['trajectory_points'] 
 
@@ -196,7 +189,7 @@ class ValDataset(Dataset):
         factor = get_save_mode_factor(save_mode=self.save_mode)
         image = apply_image_filter(image, factor)
 
-        transformed_points = self.transform_points(trajectory_points) 
+        transformed_points = np.dot(trajectory_points - self.camera_position, self.camera_rotation)
         return plot(transformed_points, image)
 
 
