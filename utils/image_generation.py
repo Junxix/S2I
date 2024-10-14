@@ -6,7 +6,19 @@ import cv2
 from PIL import Image
 import matplotlib.pyplot as plt
 from .realworld_utils import *
+import robosuite.utils.transform_utils as T
 
+def get_camera_extrinsic_matrix(sim, camera_name):
+    cam_id = sim.model.camera_name2id(camera_name)
+    camera_pos = sim.data.cam_xpos[cam_id]
+    camera_rot = sim.data.cam_xmat[cam_id].reshape(3, 3)
+    R = T.make_pose(camera_pos, camera_rot)
+
+    camera_axis_correction = np.array(
+        [[1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+    )
+    R = R @ camera_axis_correction
+    return R
 
 class TrajectoryRenderer:
     def __init__(self, env, camera_name, save_mode = False, calib_dir=None, root_dir=None):
@@ -17,9 +29,15 @@ class TrajectoryRenderer:
         else:
             self.env = env
             self.camera_name = camera_name
-            self.extrinsic_matrix = env.get_camera_extrinsic_matrix(camera_name)
+
+            # self.extrinsic_matrix = env.get_camera_extrinsic_matrix(camera_name)
+            self.extrinsic_matrix = get_camera_extrinsic_matrix(env.env.sim, camera_name)
+
+            print(self.extrinsic_matrix)
+
             self.camera_position = self.extrinsic_matrix[:3, 3]
             self.camera_rotation = self.extrinsic_matrix[:3, :3]
+
 
     def render_trajectory_image(self, trajectory_points, ind, samples, save_mode, rotate=False, state_slices=None):
         if self.save_mode == 'realworld':
@@ -71,12 +89,14 @@ class TrajectoryRenderer:
             if prev_point is not None:
                 cv2.line(image, prev_point, point, (0, 0, 255), thickness=4)
             prev_point = point
-
+        # save_path = './tmp_realworld/marked_image{}.jpg'.format(ind)  
+        # cv2.imwrite(save_path, image)
         samples['images'].append(np.array(image))
         samples['labels'].append(1 if rotate else 0)
 
     def save_and_append_images(self, transformed_points, samples, ind, image_array, rotate):
         image_array = plot(transformed_points, image_array)
+        # image_array.save(f'./tmp/image_com_{ind}.png')
 
         samples['images'].append(np.array(image_array))
         samples['labels'].append(1 if rotate else 0)
