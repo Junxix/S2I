@@ -87,8 +87,6 @@ def get_embeddings(train_dataset, model):
 
 def classifier(val_dataset, train_dataset, train_labels, model, neighbors_num):
     device = next(model.parameters()).device
-    dest_folders = ['./test_dataset/negative/', './test_dataset/positive/']
-    clear_folders_if_not_empty(dest_folders)
 
     for idx in tqdm(range(len(val_dataset))):
         image_data, demo_idx, small_demo_idx = val_dataset[idx]
@@ -98,13 +96,8 @@ def classifier(val_dataset, train_dataset, train_labels, model, neighbors_num):
             val_embedding = model.encoder(image_data).cpu().numpy()
 
         label = calculate_nearest_neighbors(val_embedding, train_dataset, train_labels, neighbors_num)
-        flag = label < 0.5
-        val_dataset.perform_optimization(idx, flag=flag)
+        val_dataset.perform_optimization(idx, label=label)
         
-        folder = dest_folders[0] if flag else dest_folders[1]
-        image_path = f"{folder}/output_image_{demo_idx}_{small_demo_idx}.png"
-        val_dataset.visualize_image(idx).save(image_path)
-
 def main():
     opt = parse_option()
     train_dataset, val_dataset = set_loader(opt)

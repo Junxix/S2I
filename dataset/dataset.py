@@ -10,6 +10,7 @@ import robomimic.utils.obs_utils as ObsUtils
 import robomimic.utils.env_utils as EnvUtils
 import robomimic.utils.file_utils as FileUtils
 
+from scipy.spatial.transform import Rotation
 from .trajectory_optimization import TrajectoryOptimizer
 from utils.realworld_utils import *
 from utils.constant import *
@@ -82,18 +83,52 @@ class ValDataset(Dataset):
         )
         ObsUtils.initialize_obs_utils_with_obs_specs(obs_modality_specs=dummy_spec)
         self.env = EnvUtils.create_env_from_metadata(env_meta=env_meta, render=False, render_offscreen=True)
-        self.camera_name = DEFAULT_CAMERAS[env_type][0]
-        self.extrinsic_matrix = self.env.get_camera_extrinsic_matrix(camera_name)
-        self.camera_position = self.extrinsic_matrix[:3, 3]
-        self.camera_rotation = self.extrinsic_matrix[:3, :3]
+
+    def _calculate_items(self, demo_idx, states, actions):
+        states = self.data[f"data/{demo_idx}/states"][()]
+        traj_len = states.shape[0]
+
+        delta_actions = self.data[f"data/{demo_idx}/actions"][()]
+        action_pos = np.zeros((traj_len, 3), dtype=delta_actions.dtype)
+        action_ori = np.zeros((traj_len, 3), dtype=delta_actions.dtype)
+        action_gripper = delta_actions[:, -1:]
+
+        robot = self.env.env.robots[0]
+        controller = robot.controller
+
+        for i in range(len(states)):
+            self.env.reset_to({"states": states[i]})
+            robot.control(actions[i], policy_step=True)
+
+            action_pos[i] = controller.ee_pos
+            action_ori[i] = Rotation.from_matrix(controller.ee_ori_mat).as_rotvec()
+
+        actions = np.concatenate([action_pos, action_ori, action_gripper], axis=-1)
+        return actions
+
         
     def _split_demos(self):
         for demo_idx in self.demos:
+            eef_pos =self.data[f"data/{demo_idx}/obs/robot0_eef_pos"][()]
+            eef_quat = self.data[f"data/{demo_idx}/obs/robot0_eef_quat"][()]
+            joint_pos = self.data[f"data/{demo_idx}/obs/robot0_joint_pos"][()]
+            gt_states = []
+            traj_len = eef_pos.shape[0]
+            for i in range(traj_len):
+                gt_states.append(
+                    dict(
+                        robot0_eef_pos=eef_pos[i],
+                        robot0_eef_quat=eef_quat[i],
+                        robot0_joint_pos=joint_pos[i],
+                    )
+                )
             actions = self.data[f'data/{demo_idx}/actions'][()]
             states = self.data[f'data/{demo_idx}/states'][()]
             trajectory_points = self.data[f'data/{demo_idx}/obs/robot0_eef_pos'][()]
+            actions = self._calculate_items(demo_idx, states, actions)
+
             frames = self._get_frames(actions)
-            small_demos = self._split_into_small_demos(actions, states, trajectory_points, frames)
+            small_demos = self._split_into_small_demos(actions, states, trajectory_points, gt_states, frames)
 
             self.small_demos[demo_idx] = small_demos
             self.mapping[demo_idx] = list(range(len(small_demos)))  
@@ -114,13 +149,14 @@ class ValDataset(Dataset):
         merged_frames.sort()
         return merged_frames
 
-    def _split_into_small_demos(self, actions, states, trajectory_points, frames):
+    def _split_into_small_demos(self, actions, states, trajectory_points, gt_states, frames):
         small_demos = []
         for i in range(len(frames) - 1):
             start, end = frames[i], frames[i + 1]
             small_demos.append({
                 'actions': actions[start:end],
                 'states': states[start:end],
+                'gt_states': gt_states[start:end],
                 'trajectory_points': trajectory_points[start:end],
                 'frame_start': frames[i],
                 'frame_end': frames[i+1]
@@ -167,8 +203,8 @@ class ValDataset(Dataset):
         positive_image = self.generate_image(small_demo)
         return positive_image
 
-
-    def perform_optimization(self, idx, flag=True):
+    def perform_optimization(self, idx, label):
+        flag = label < 0.5
         demo_idx, small_demo_idx = self._find_small_demo_index(idx)
         small_demo = self.small_demos[demo_idx][small_demo_idx]
         if flag:
@@ -177,6 +213,18 @@ class ValDataset(Dataset):
             marks = list(range(small_demo['frame_start'], small_demo['frame_end']))
 
         self._save_marks(demo_idx, marks)
+
+    def transform_points(self, trajectory_points):
+        camera_position = np.array([1.0, 0.0, 1.75])
+        camera_rotation = np.array([
+            [0.0, -0.70614724, 0.70806503],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.70806503, 0.70614724]
+        ])
+
+        transformed_points = np.dot(trajectory_points - camera_position, camera_rotation)
+        return transformed_points
+
 
     def generate_image(self, small_demo, save_mode="image"):
         trajectory_points = small_demo['trajectory_points'] 
@@ -189,11 +237,11 @@ class ValDataset(Dataset):
         factor = get_save_mode_factor(save_mode=self.save_mode)
         image = apply_image_filter(image, factor)
 
-        transformed_points = np.dot(trajectory_points - self.camera_position, self.camera_rotation)
+        transformed_points = self.transform_points(trajectory_points) 
         return plot(transformed_points, image)
 
 
-class RealworldDataset(Dataset):
+class RealworldValDataset(Dataset):
     def __init__(self, dataset, transform=None, save_mode=None):
         """
         Args:
